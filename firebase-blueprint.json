@@ -1,0 +1,337 @@
+{
+  "entities": {
+    "AdminRole": {
+      "title": "AdminRole",
+      "description": "Trusted administrator membership document for Geajao Admins.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "UID of the admin user." },
+        "grantedBy": { "type": "string", "description": "UID of the admin who granted the role." },
+        "bootstrapCode": { "type": "string", "description": "Secret Admin passcode verification (A54h)." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." }
+      },
+      "required": ["uid", "grantedBy", "bootstrapCode", "createdAt"]
+    },
+    "ModeratorRole": {
+      "title": "ModeratorRole",
+      "description": "Trusted moderator membership document unlocked via passcode 5246 or granted by an Admin.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "UID of the moderator user." },
+        "grantedBy": { "type": "string", "description": "UID of the user or admin who granted the role." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." }
+      },
+      "required": ["uid", "grantedBy", "createdAt"]
+    },
+    "AppConfig": {
+      "title": "AppConfig",
+      "description": "Global application configuration including Admin-selected or gallery-uploaded app icon.",
+      "type": "object",
+      "properties": {
+        "configId": { "type": "string", "enum": ["global"], "description": "Singleton config document ID." },
+        "selectedIconKey": { "type": "string", "enum": ["GOLD_SHIELD", "CRIMSON_STAR", "EMERALD_EAGLE", "CYBER_STEALTH", "CUSTOM_GALLERY"], "description": "Active app icon key selected by Admin." },
+        "customIconBase64": { "type": "string", "description": "Optional Base64 encoded custom app icon uploaded from gallery by Admin." },
+        "updatedBy": { "type": "string", "description": "Admin UID who updated the icon." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." }
+      },
+      "required": ["configId", "selectedIconKey", "customIconBase64", "updatedBy", "updatedAt"]
+    },
+    "CadetProfile": {
+      "title": "CadetProfile",
+      "description": "Cadet profile, ID card verification payload, creator analytics counters, and role badges.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Authenticated user UID." },
+        "corpsId": { "type": "string", "enum": ["geajao_cadet_corps"], "description": "Cadet corps partition identifier." },
+        "displayName": { "type": "string", "description": "Cadet full name or callsign." },
+        "cadetNumber": { "type": "string", "description": "Cadet serial / intake number." },
+        "batchYear": { "type": "string", "description": "Intake batch year or class." },
+        "academyHouse": { "type": "string", "description": "Cadet college house or squadron." },
+        "bio": { "type": "string", "description": "Personal motto and cadet bio." },
+        "verificationStatus": { "type": "string", "enum": ["PENDING", "APPROVED", "REJECTED"], "description": "ID card verification status." },
+        "primaryBadge": { "type": "string", "enum": ["Unverified", "Cadet", "Ex-cadet", "Moderator", "Admin"], "description": "Primary active badge." },
+        "badges": { "type": "array", "description": "List of assigned badges (Cadet, Ex-cadet, Moderator, Admin)." },
+        "idCardImageBase64": { "type": "string", "description": "Compact base64 representation of uploaded Cadet ID Card." },
+        "idCardNote": { "type": "string", "description": "Verification submission note or reviewer remark." },
+        "followersCount": { "type": "integer", "description": "Creator audience follower count." },
+        "profileViews": { "type": "integer", "description": "Total profile impressions." },
+        "totalEngagement": { "type": "integer", "description": "Cumulative likes, comments, and shares." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." }
+      },
+      "required": [
+        "userId",
+        "corpsId",
+        "displayName",
+        "cadetNumber",
+        "batchYear",
+        "academyHouse",
+        "bio",
+        "verificationStatus",
+        "primaryBadge",
+        "badges",
+        "idCardImageBase64",
+        "idCardNote",
+        "followersCount",
+        "profileViews",
+        "totalEngagement",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Friendship": {
+      "title": "Friendship",
+      "description": "Friend request and accepted friendship state between two cadets. Only accepted friends can chat.",
+      "type": "object",
+      "properties": {
+        "participantUids": { "type": "array", "description": "Two sorted UIDs of the friendship participants." },
+        "requesterId": { "type": "string", "description": "UID of the user who sent the friend request." },
+        "requesterName": { "type": "string", "description": "Display name of the requester." },
+        "receiverId": { "type": "string", "description": "UID of the user who received the friend request." },
+        "receiverName": { "type": "string", "description": "Display name of the receiver." },
+        "status": { "type": "string", "enum": ["PENDING", "ACCEPTED"], "description": "Friendship status." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." }
+      },
+      "required": [
+        "participantUids",
+        "requesterId",
+        "requesterName",
+        "receiverId",
+        "receiverName",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "FeedPost": {
+      "title": "FeedPost",
+      "description": "Social feed post with multi-media support and creator analytics telemetry.",
+      "type": "object",
+      "properties": {
+        "authorId": { "type": "string", "description": "UID of the cadet author." },
+        "authorName": { "type": "string", "description": "Display name of the cadet author." },
+        "authorBadge": { "type": "string", "description": "Primary badge of the author at post time." },
+        "authorBatch": { "type": "string", "description": "Batch/intake of the author." },
+        "corpsId": { "type": "string", "enum": ["geajao_cadet_corps"], "description": "Cadet corps partition key." },
+        "title": { "type": "string", "description": "Optional post summary." },
+        "content": { "type": "string", "description": "Post body content." },
+        "category": { "type": "string", "description": "Post feed tag." },
+        "mediaImageBase64": { "type": "string", "description": "Optional attached media image base64." },
+        "likesCount": { "type": "integer", "description": "Number of likes." },
+        "commentsCount": { "type": "integer", "description": "Number of comments." },
+        "viewsCount": { "type": "integer", "description": "Number of post impressions." },
+        "sharesCount": { "type": "integer", "description": "Number of shares." },
+        "likedByUids": { "type": "array", "description": "Bounded recent UIDs who liked the post." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." }
+      },
+      "required": [
+        "authorId",
+        "authorName",
+        "authorBadge",
+        "authorBatch",
+        "corpsId",
+        "title",
+        "content",
+        "category",
+        "mediaImageBase64",
+        "likesCount",
+        "commentsCount",
+        "viewsCount",
+        "sharesCount",
+        "likedByUids",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ChatRoom": {
+      "title": "ChatRoom",
+      "description": "Encrypted private messaging room between friends with configurable disappearing message TTL.",
+      "type": "object",
+      "properties": {
+        "participantUids": { "type": "array", "description": "Bounded list of participant UIDs." },
+        "participantNames": { "type": "string", "description": "Formatted names of participants." },
+        "chatTitle": { "type": "string", "description": "Title of the direct channel." },
+        "lastMessagePreview": { "type": "string", "description": "Preview or encrypted indicator of last message." },
+        "disappearingTtlSeconds": { "type": "integer", "description": "Disappearing message timer in seconds (0 = off)." },
+        "isEncrypted": { "type": "boolean", "description": "Whether AES-256-GCM encryption is active." },
+        "encryptionKeyHint": { "type": "string", "description": "Key fingerprint identifier." },
+        "createdBy": { "type": "string", "description": "Creator UID." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." }
+      },
+      "required": [
+        "participantUids",
+        "participantNames",
+        "chatTitle",
+        "lastMessagePreview",
+        "disappearingTtlSeconds",
+        "isEncrypted",
+        "encryptionKeyHint",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "EncryptedMessage": {
+      "title": "EncryptedMessage",
+      "description": "AES-GCM encrypted message inside a chat room with disappearing TTL and multi-media/GIF/Sticker payload.",
+      "type": "object",
+      "properties": {
+        "chatId": { "type": "string", "description": "Parent chat room ID." },
+        "senderId": { "type": "string", "description": "Sender UID." },
+        "senderName": { "type": "string", "description": "Sender cadet name." },
+        "senderBadge": { "type": "string", "description": "Sender primary badge." },
+        "participantUids": { "type": "array", "description": "Denormalized participant UIDs for zero-latency security check." },
+        "cipherText": { "type": "string", "description": "AES-GCM encrypted Base64 payload." },
+        "ivBase64": { "type": "string", "description": "AES-GCM initialization vector Base64." },
+        "mediaType": { "type": "string", "enum": ["NONE", "IMAGE", "VOICE_NOTE", "GRID_COORDS", "GIF", "STICKER"], "description": "Multi-media attachment type including GIFs and Stickers." },
+        "mediaDataBase64": { "type": "string", "description": "Encrypted or encoded attachment payload, GIF ID, or Sticker code." },
+        "ttlSeconds": { "type": "integer", "description": "Disappearing timer in seconds." },
+        "expiresAtEpochMs": { "type": "integer", "description": "Client epoch ms when disappearing message expires (0 = never)." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." }
+      },
+      "required": [
+        "chatId",
+        "senderId",
+        "senderName",
+        "senderBadge",
+        "participantUids",
+        "cipherText",
+        "ivBase64",
+        "mediaType",
+        "mediaDataBase64",
+        "ttlSeconds",
+        "expiresAtEpochMs",
+        "createdAt"
+      ]
+    },
+    "CallSession": {
+      "title": "CallSession",
+      "description": "Real-time Voice and Video call signaling session between cadets.",
+      "type": "object",
+      "properties": {
+        "callerId": { "type": "string", "description": "UID of the caller." },
+        "callerName": { "type": "string", "description": "Display name of the caller." },
+        "callerBadge": { "type": "string", "description": "Badge of the caller." },
+        "calleeId": { "type": "string", "description": "UID of the recipient cadet." },
+        "calleeName": { "type": "string", "description": "Display name of the recipient cadet." },
+        "participantUids": { "type": "array", "description": "Bounded list of call participant UIDs." },
+        "callType": { "type": "string", "enum": ["VOICE", "VIDEO"], "description": "Voice or Video call mode." },
+        "status": { "type": "string", "enum": ["RINGING", "CONNECTED", "ENDED"], "description": "Call lifecycle state." },
+        "encryptionFingerprint": { "type": "string", "description": "SRTP/DTLS fingerprint verification string." },
+        "isCallerMuted": { "type": "boolean", "description": "Caller microphone mute state." },
+        "isCalleeMuted": { "type": "boolean", "description": "Callee microphone mute state." },
+        "isVideoEnabled": { "type": "boolean", "description": "Whether video stream is active." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." }
+      },
+      "required": [
+        "callerId",
+        "callerName",
+        "callerBadge",
+        "calleeId",
+        "calleeName",
+        "participantUids",
+        "callType",
+        "status",
+        "encryptionFingerprint",
+        "isCallerMuted",
+        "isCalleeMuted",
+        "isVideoEnabled",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "FcmTokenRecord": {
+      "title": "FcmTokenRecord",
+      "description": "Firebase Cloud Messaging device registration token for real-time background push notifications.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "UID of the device owner." },
+        "fcmToken": { "type": "string", "description": "FCM registration token." },
+        "platform": { "type": "string", "enum": ["ANDROID"], "description": "Client platform." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." }
+      },
+      "required": ["userId", "fcmToken", "platform", "updatedAt"]
+    },
+    "PushNotificationEvent": {
+      "title": "PushNotificationEvent",
+      "description": "Real-time push notification payload for incoming private messages and friend requests.",
+      "type": "object",
+      "properties": {
+        "recipientId": { "type": "string", "description": "UID of the notification recipient." },
+        "senderId": { "type": "string", "description": "UID of the cadet who triggered the notification." },
+        "senderName": { "type": "string", "description": "Display name of the sender." },
+        "senderBadge": { "type": "string", "description": "Primary badge of the sender." },
+        "type": { "type": "string", "enum": ["PRIVATE_MESSAGE", "FRIEND_REQUEST", "FRIEND_ACCEPTED"], "description": "Notification event type." },
+        "title": { "type": "string", "description": "Notification title." },
+        "body": { "type": "string", "description": "Notification preview body." },
+        "targetId": { "type": "string", "description": "Target chatId or friendshipId." },
+        "isDelivered": { "type": "boolean", "description": "Whether the push notification has been delivered to the recipient." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." }
+      },
+      "required": [
+        "recipientId",
+        "senderId",
+        "senderName",
+        "senderBadge",
+        "type",
+        "title",
+        "body",
+        "targetId",
+        "isDelivered",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/admins/{adminUid}": {
+      "schema": { "$ref": "#/entities/AdminRole" },
+      "description": "Admin role membership documents."
+    },
+    "/moderators/{modUid}": {
+      "schema": { "$ref": "#/entities/ModeratorRole" },
+      "description": "Moderator role membership documents."
+    },
+    "/app_config/{configId}": {
+      "schema": { "$ref": "#/entities/AppConfig" },
+      "description": "Global application settings including Admin-selected or gallery-uploaded app icon."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/CadetProfile" },
+      "description": "Cadet profiles, ID verification submissions, role badges, and creator metrics."
+    },
+    "/friendships/{friendshipId}": {
+      "schema": { "$ref": "#/entities/Friendship" },
+      "description": "Friend requests and accepted friendships between cadets."
+    },
+    "/posts/{postId}": {
+      "schema": { "$ref": "#/entities/FeedPost" },
+      "description": "Social feed posts and creator analytics."
+    },
+    "/chats/{chatId}": {
+      "schema": { "$ref": "#/entities/ChatRoom" },
+      "description": "Encrypted private messaging chat rooms."
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/EncryptedMessage" },
+      "description": "AES-GCM encrypted messages with disappearing TTL, media, GIFs, and Stickers."
+    },
+    "/calls/{callId}": {
+      "schema": { "$ref": "#/entities/CallSession" },
+      "description": "Real-time voice and video call signaling sessions."
+    },
+    "/fcm_tokens/{userId}": {
+      "schema": { "$ref": "#/entities/FcmTokenRecord" },
+      "description": "FCM device tokens for push notifications."
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/PushNotificationEvent" },
+      "description": "Real-time push notification queue for private messages and friend requests."
+    }
+  }
+}

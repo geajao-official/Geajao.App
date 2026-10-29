@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">Geajao</string>
+    <string name="auth_subtitle">EXCLUSIVE CADET &amp; EX-CADET CORPS NETWORK</string>
+    <string name="sign_in_google">Sign in with Google</string>
+    <string name="verify_id_header">Cadet Identity Verification</string>
+    <string name="upload_id_card">Upload Cadet ID Card Photo</string>
+    <string name="generate_digital_id">Generate Official Academy ID Card</string>
+    <string name="submit_verification">Submit to Admin &amp; Moderator Review</string>
+    <string name="nav_feed">Feed</string>
+    <string name="nav_chats">E2EE Chat</string>
+    <string name="nav_calls">Comms</string>
+    <string name="nav_analytics">Analytics</string>
+    <string name="nav_command">Command</string>
+    <string name="nav_profile">Profile</string>
+</resources>

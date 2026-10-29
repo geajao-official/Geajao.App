@@ -1,0 +1,6 @@
+{
+  "name": "Geajao",
+  "description": "Exclusive cadet social network with ID verification, real-time encrypted messaging, disappearing chats, voice/video calls, creator analytics, and role badges.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

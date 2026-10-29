@@ -1,0 +1,585 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Core primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isBootstrappedAdminEmail() {
+      return isSignedIn() &&
+             ('email' in request.auth.token) &&
+             ('email_verified' in request.auth.token) &&
+             request.auth.token.email == 'sinan01196243@gmail.com' &&
+             request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        isBootstrappedAdminEmail() ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isModerator() {
+      return isSignedIn() && (
+        isAdmin() ||
+        exists(/databases/$(database)/documents/moderators/$(request.auth.uid))
+      );
+    }
+
+    // 1. Admin Role Collection (Passcode A54h or existing Admin)
+    function isValidAdminRole(data) {
+      return data.keys().hasAll(['uid', 'grantedBy', 'bootstrapCode', 'createdAt']) &&
+             data.keys().hasOnly(['uid', 'grantedBy', 'bootstrapCode', 'createdAt']) &&
+             data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+             data.grantedBy is string && data.grantedBy.size() >= 1 && data.grantedBy.size() <= 128 &&
+             data.bootstrapCode is string && data.bootstrapCode.size() >= 1 && data.bootstrapCode.size() <= 64 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    match /admins/{adminUid} {
+      allow get: if isSignedIn() && isValidId(adminUid) && (request.auth.uid == adminUid || isAdmin() || isModerator());
+      allow list: if isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow create, update: if isSignedIn() &&
+                               isValidId(adminUid) &&
+                               isValidAdminRole(incoming()) &&
+                               incoming().uid == adminUid &&
+                               (
+                                 isAdmin() ||
+                                 (request.auth.uid == adminUid &&
+                                  incoming().grantedBy == request.auth.uid &&
+                                  incoming().bootstrapCode in ['A54h', 'GEAJAO-COMMANDANT-KEY', '1948'])
+                               );
+      allow delete: if isAdmin() && isValidId(adminUid);
+    }
+
+    // 2. Moderator Role Collection (Admin grant OR 5246 Moderator passcode)
+    function isValidModeratorRole(data) {
+      return data.keys().hasAll(['uid', 'grantedBy', 'createdAt']) &&
+             data.keys().hasOnly(['uid', 'grantedBy', 'bootstrapCode', 'createdAt']) &&
+             data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+             data.grantedBy is string && data.grantedBy.size() >= 1 && data.grantedBy.size() <= 128 &&
+             (!('bootstrapCode' in data) || (data.bootstrapCode is string && data.bootstrapCode.size() <= 64)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    match /moderators/{modUid} {
+      allow get: if isSignedIn() && isValidId(modUid) && (request.auth.uid == modUid || isModerator());
+      allow list: if isSignedIn() && (existing().uid == request.auth.uid || isModerator());
+      allow create, update: if isSignedIn() &&
+                               isValidId(modUid) &&
+                               isValidModeratorRole(incoming()) &&
+                               incoming().uid == modUid &&
+                               (
+                                 (isAdmin() && incoming().grantedBy == request.auth.uid) ||
+                                 (request.auth.uid == modUid &&
+                                  incoming().grantedBy == request.auth.uid &&
+                                  ('bootstrapCode' in incoming()) &&
+                                  incoming().bootstrapCode == '5246')
+                               );
+      allow delete: if isAdmin() && isValidId(modUid);
+    }
+
+    // 2b. Global App Config Collection (Admin-selected or gallery-uploaded App Icon + MUKHOSH Logo)
+    function isValidAppConfig(data) {
+      return data.keys().hasAll(['configId', 'selectedIconKey', 'updatedBy', 'updatedAt']) &&
+             data.keys().hasOnly(['configId', 'selectedIconKey', 'customIconBase64', 'mukhoshLogoBase64', 'updatedBy', 'updatedAt']) &&
+             data.configId == 'global' &&
+             data.selectedIconKey in ['GOLD_SHIELD', 'CRIMSON_STAR', 'EMERALD_EAGLE', 'CYBER_STEALTH', 'CUSTOM_GALLERY'] &&
+             (!('customIconBase64' in data) || (data.customIconBase64 is string && data.customIconBase64.size() <= 150000)) &&
+             (!('mukhoshLogoBase64' in data) || (data.mukhoshLogoBase64 is string && data.mukhoshLogoBase64.size() <= 150000)) &&
+             data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128 &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /app_config/{configId} {
+      allow get: if isSignedIn() && configId == 'global';
+      allow list: if false;
+      allow create: if isSignedIn() &&
+                       configId == 'global' &&
+                       isValidAppConfig(incoming()) &&
+                       incoming().updatedBy == request.auth.uid &&
+                       (
+                         isAdmin() ||
+                         (incoming().selectedIconKey == 'GOLD_SHIELD' &&
+                          (!('customIconBase64' in incoming()) || incoming().customIconBase64 == ''))
+                       );
+      allow update: if isSignedIn() &&
+                       configId == 'global' &&
+                       isValidAppConfig(incoming()) &&
+                       incoming().updatedBy == request.auth.uid &&
+                       (
+                         isAdmin() ||
+                         incoming().diff(existing()).affectedKeys().hasOnly(['mukhoshLogoBase64', 'updatedBy', 'updatedAt'])
+                       );
+      allow delete: if false;
+    }
+
+    // 3. Cadet Users Collection
+    function isValidCadetProfile(data) {
+      return data.keys().hasAll([
+               'userId', 'corpsId', 'displayName', 'cadetNumber', 'batchYear',
+               'academyHouse', 'bio', 'verificationStatus', 'primaryBadge',
+               'badges', 'idCardImageBase64', 'idCardNote',
+               'followersCount', 'profileViews', 'totalEngagement',
+               'createdAt', 'updatedAt'
+             ]) &&
+             data.keys().hasOnly([
+               'userId', 'corpsId', 'displayName', 'cadetNumber', 'batchYear',
+               'academyHouse', 'bio', 'verificationStatus', 'primaryBadge',
+               'badges', 'idCardImageBase64', 'idCardNote',
+               'followersCount', 'profileViews', 'totalEngagement',
+               'createdAt', 'updatedAt'
+             ]) &&
+             data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.corpsId == 'geajao_cadet_corps' &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+             data.cadetNumber is string && data.cadetNumber.size() >= 1 && data.cadetNumber.size() <= 40 &&
+             data.batchYear is string && data.batchYear.size() >= 1 && data.batchYear.size() <= 20 &&
+             data.academyHouse is string && data.academyHouse.size() >= 1 && data.academyHouse.size() <= 60 &&
+             data.bio is string && data.bio.size() <= 300 &&
+             data.verificationStatus in ['PENDING', 'APPROVED', 'REJECTED'] &&
+             data.primaryBadge in ['Unverified', 'Cadet', 'Ex-cadet', 'Moderator', 'Admin'] &&
+             data.badges is list && data.badges.size() <= 6 &&
+             data.badges.hasOnly(['Cadet', 'Ex-cadet', 'Moderator', 'Admin']) &&
+             (data.badges.size() == 0 || data.badges[0] is string) &&
+             data.idCardImageBase64 is string && data.idCardImageBase64.size() <= 150000 &&
+             data.idCardNote is string && data.idCardNote.size() <= 200 &&
+             data.followersCount is int && data.followersCount >= 0 &&
+             data.profileViews is int && data.profileViews >= 0 &&
+             data.totalEngagement is int && data.totalEngagement >= 0 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId);
+      allow list: if isSignedIn() && existing().corpsId == 'geajao_cadet_corps';
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       incoming().userId == request.auth.uid &&
+                       isValidCadetProfile(incoming()) &&
+                       (
+                         isAdmin() ||
+                         isModerator() ||
+                         (incoming().verificationStatus == 'PENDING' &&
+                          incoming().primaryBadge == 'Unverified' &&
+                          incoming().badges.hasOnly(['Cadet', 'Ex-cadet']) &&
+                          incoming().badges.size() <= 1)
+                       );
+
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       isValidCadetProfile(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().corpsId == existing().corpsId &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         // Action 1: Admin full approval & badge management (Cadet, Ex-cadet, Moderator, Admin)
+                         (isAdmin() &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'verificationStatus', 'primaryBadge', 'badges', 'idCardNote',
+                            'displayName', 'cadetNumber', 'batchYear', 'academyHouse', 'bio',
+                            'idCardImageBase64', 'followersCount', 'profileViews', 'totalEngagement', 'updatedAt'
+                          ])) ||
+                         // Action 2: Moderator approval & Cadet / Ex-cadet badge management (preserves any existing Admin/Moderator badges; cannot grant Admin or Moderator to others)
+                         (isModerator() &&
+                          !isAdmin() &&
+                          ('Admin' in incoming().badges) == ('Admin' in existing().badges) &&
+                          (incoming().primaryBadge == 'Admin') == (existing().primaryBadge == 'Admin') &&
+                          (request.auth.uid == userId ||
+                           (('Moderator' in incoming().badges) == ('Moderator' in existing().badges) &&
+                            (incoming().primaryBadge == 'Moderator') == (existing().primaryBadge == 'Moderator'))) &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'verificationStatus', 'primaryBadge', 'badges', 'idCardNote',
+                            'displayName', 'cadetNumber', 'batchYear', 'academyHouse', 'bio',
+                            'idCardImageBase64', 'updatedAt'
+                          ])) ||
+                         // Action 3: Owner profile customization, ID card upload & Cadet/Ex-cadet selection (cannot self-approve or self-assign Admin/Moderator)
+                         (request.auth.uid == userId &&
+                          ('Admin' in incoming().badges) == ('Admin' in existing().badges) &&
+                          ('Moderator' in incoming().badges) == ('Moderator' in existing().badges) &&
+                          (incoming().primaryBadge == existing().primaryBadge ||
+                           (existing().primaryBadge in ['Cadet', 'Ex-cadet'] &&
+                            incoming().primaryBadge in ['Cadet', 'Ex-cadet'])) &&
+                          (incoming().verificationStatus == existing().verificationStatus ||
+                           incoming().verificationStatus == 'PENDING') &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'displayName', 'cadetNumber', 'batchYear', 'academyHouse', 'bio',
+                            'idCardImageBase64', 'idCardNote', 'verificationStatus',
+                            'primaryBadge', 'badges', 'updatedAt'
+                          ])) ||
+                         // Action 4: Peer analytics counter updates (views, followers, engagement)
+                         (existing().corpsId == 'geajao_cadet_corps' &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'followersCount', 'profileViews', 'totalEngagement', 'updatedAt'
+                          ]))
+                       );
+
+      allow delete: if isAdmin() && isValidId(userId);
+    }
+
+    // 3b. Friendships Collection (Friend System)
+    function isValidFriendship(data) {
+      return data.keys().hasAll([
+               'participantUids', 'requesterId', 'requesterName',
+               'receiverId', 'receiverName', 'status',
+               'createdAt', 'updatedAt'
+             ]) &&
+             data.keys().hasOnly([
+               'participantUids', 'requesterId', 'requesterName',
+               'receiverId', 'receiverName', 'status',
+               'createdAt', 'updatedAt'
+             ]) &&
+             data.participantUids is list && data.participantUids.size() == 2 &&
+             data.participantUids[0] is string && data.participantUids[1] is string &&
+             data.requesterId is string && data.requesterId in data.participantUids &&
+             data.receiverId is string && data.receiverId in data.participantUids &&
+             data.requesterId != data.receiverId &&
+             data.requesterName is string && data.requesterName.size() >= 1 && data.requesterName.size() <= 80 &&
+             data.receiverName is string && data.receiverName.size() >= 1 && data.receiverName.size() <= 80 &&
+             data.status in ['PENDING', 'ACCEPTED'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /friendships/{friendshipId} {
+      allow get: if isSignedIn() && isValidId(friendshipId) && (resource == null || request.auth.uid in existing().participantUids);
+      allow list: if isSignedIn() && request.auth.uid in existing().participantUids;
+
+      allow create: if isSignedIn() &&
+                       isValidId(friendshipId) &&
+                       isValidFriendship(incoming()) &&
+                       incoming().requesterId == request.auth.uid &&
+                       incoming().status == 'PENDING';
+
+      allow update: if isSignedIn() &&
+                       isValidId(friendshipId) &&
+                       isValidFriendship(incoming()) &&
+                       request.auth.uid in existing().participantUids &&
+                       incoming().participantUids == existing().participantUids &&
+                       incoming().requesterId == existing().requesterId &&
+                       incoming().receiverId == existing().receiverId &&
+                       (
+                         (incoming().createdAt == existing().createdAt && incoming().status == 'ACCEPTED') ||
+                         (incoming().requesterId == request.auth.uid && incoming().status == 'PENDING')
+                       );
+
+      allow delete: if isSignedIn() && isValidId(friendshipId) && request.auth.uid in existing().participantUids;
+    }
+
+    // 4. Social Feed Posts Collection
+    function isValidFeedPost(data) {
+      return data.keys().hasAll([
+               'authorId', 'authorName', 'authorBadge', 'authorBatch', 'corpsId',
+               'title', 'content', 'category', 'mediaImageBase64',
+               'likesCount', 'commentsCount', 'viewsCount', 'sharesCount',
+               'likedByUids', 'createdAt', 'updatedAt'
+             ]) &&
+             data.keys().hasOnly([
+               'authorId', 'authorName', 'authorBadge', 'authorBatch', 'corpsId',
+               'title', 'content', 'category', 'mediaImageBase64',
+               'likesCount', 'commentsCount', 'viewsCount', 'sharesCount',
+               'likedByUids', 'createdAt', 'updatedAt'
+             ]) &&
+             data.authorId is string && data.authorId.size() >= 1 && data.authorId.size() <= 128 &&
+             data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 80 &&
+             data.authorBadge is string && data.authorBadge.size() >= 1 && data.authorBadge.size() <= 30 &&
+             data.authorBatch is string && data.authorBatch.size() <= 20 &&
+             data.corpsId == 'geajao_cadet_corps' &&
+             data.title is string && data.title.size() <= 120 &&
+             data.content is string && data.content.size() >= 1 && data.content.size() <= 2000 &&
+             data.category is string && data.category.size() >= 1 && data.category.size() <= 40 &&
+             data.mediaImageBase64 is string && data.mediaImageBase64.size() <= 150000 &&
+             data.likesCount is int && data.likesCount >= 0 &&
+             data.commentsCount is int && data.commentsCount >= 0 &&
+             data.viewsCount is int && data.viewsCount >= 0 &&
+             data.sharesCount is int && data.sharesCount >= 0 &&
+             data.likedByUids is list && data.likedByUids.size() <= 10 &&
+             (data.likedByUids.size() == 0 || data.likedByUids[0] is string) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /posts/{postId} {
+      allow get: if isSignedIn() && isValidId(postId) && (resource == null || existing().corpsId == 'geajao_cadet_corps');
+      allow list: if isSignedIn() && existing().corpsId == 'geajao_cadet_corps';
+
+      allow create: if isSignedIn() &&
+                       isValidId(postId) &&
+                       incoming().authorId == request.auth.uid &&
+                       isValidFeedPost(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(postId) &&
+                       isValidFeedPost(incoming()) &&
+                       incoming().authorId == existing().authorId &&
+                       incoming().corpsId == existing().corpsId &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         isAdmin() ||
+                         (existing().authorId == request.auth.uid &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'title', 'content', 'category', 'mediaImageBase64', 'updatedAt'
+                          ])) ||
+                         (existing().corpsId == 'geajao_cadet_corps' &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'likesCount', 'commentsCount', 'viewsCount', 'sharesCount', 'likedByUids', 'updatedAt'
+                          ]))
+                       );
+
+      allow delete: if isSignedIn() && isValidId(postId) && (existing().authorId == request.auth.uid || isModerator());
+    }
+
+    // 5. Encrypted Private Chat Rooms Collection
+    function isValidChatRoom(data) {
+      return data.keys().hasAll([
+               'participantUids', 'participantNames', 'chatTitle', 'lastMessagePreview',
+               'disappearingTtlSeconds', 'isEncrypted', 'encryptionKeyHint',
+               'createdBy', 'createdAt', 'updatedAt'
+             ]) &&
+             data.keys().hasOnly([
+               'participantUids', 'participantNames', 'chatTitle', 'lastMessagePreview',
+               'disappearingTtlSeconds', 'isEncrypted', 'encryptionKeyHint',
+               'createdBy', 'createdAt', 'updatedAt'
+             ]) &&
+             data.participantUids is list && data.participantUids.size() >= 1 && data.participantUids.size() <= 10 &&
+             data.participantUids[0] is string &&
+             data.participantNames is string && data.participantNames.size() >= 1 && data.participantNames.size() <= 200 &&
+             data.chatTitle is string && data.chatTitle.size() >= 1 && data.chatTitle.size() <= 100 &&
+             data.lastMessagePreview is string && data.lastMessagePreview.size() <= 500 &&
+             data.disappearingTtlSeconds is int && data.disappearingTtlSeconds >= 0 && data.disappearingTtlSeconds <= 604800 &&
+             data.isEncrypted is bool &&
+             data.encryptionKeyHint is string && data.encryptionKeyHint.size() >= 1 && data.encryptionKeyHint.size() <= 120 &&
+             data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /chats/{chatId} {
+      allow get: if isSignedIn() && isValidId(chatId) && (resource == null || request.auth.uid in existing().participantUids);
+      allow list: if isSignedIn() && request.auth.uid in existing().participantUids;
+
+      allow create: if isSignedIn() &&
+                       isValidId(chatId) &&
+                       incoming().createdBy == request.auth.uid &&
+                       request.auth.uid in incoming().participantUids &&
+                       isValidChatRoom(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(chatId) &&
+                       isValidChatRoom(incoming()) &&
+                       request.auth.uid in existing().participantUids &&
+                       incoming().createdBy == existing().createdBy &&
+                       incoming().participantUids == existing().participantUids &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'lastMessagePreview', 'disappearingTtlSeconds', 'chatTitle', 'updatedAt'
+                       ]);
+
+      allow delete: if isSignedIn() && isValidId(chatId) && (existing().createdBy == request.auth.uid || isAdmin());
+
+      // 6. Encrypted Messages Subcollection (Includes GIF and STICKER support)
+      function isValidEncryptedMessage(data) {
+        return data.keys().hasAll([
+                 'chatId', 'senderId', 'senderName', 'senderBadge', 'participantUids',
+                 'cipherText', 'ivBase64', 'mediaType', 'mediaDataBase64',
+                 'ttlSeconds', 'expiresAtEpochMs', 'createdAt'
+               ]) &&
+               data.keys().hasOnly([
+                 'chatId', 'senderId', 'senderName', 'senderBadge', 'participantUids',
+                 'cipherText', 'ivBase64', 'mediaType', 'mediaDataBase64',
+                 'ttlSeconds', 'expiresAtEpochMs', 'createdAt'
+               ]) &&
+               data.chatId is string && data.chatId.size() >= 1 && data.chatId.size() <= 128 &&
+               data.senderId is string && data.senderId.size() >= 1 && data.senderId.size() <= 128 &&
+               data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 80 &&
+               data.senderBadge is string && data.senderBadge.size() >= 1 && data.senderBadge.size() <= 30 &&
+               data.participantUids is list && data.participantUids.size() >= 1 && data.participantUids.size() <= 10 &&
+               data.participantUids[0] is string &&
+               data.cipherText is string && data.cipherText.size() >= 1 && data.cipherText.size() <= 4000 &&
+               data.ivBase64 is string && data.ivBase64.size() >= 1 && data.ivBase64.size() <= 120 &&
+               data.mediaType in ['NONE', 'IMAGE', 'VOICE_NOTE', 'GRID_COORDS', 'GIF', 'STICKER'] &&
+               data.mediaDataBase64 is string && data.mediaDataBase64.size() <= 150000 &&
+               data.ttlSeconds is int && data.ttlSeconds >= 0 && data.ttlSeconds <= 604800 &&
+               data.expiresAtEpochMs is int && data.expiresAtEpochMs >= 0 &&
+               data.createdAt is timestamp && data.createdAt <= request.time;
+      }
+
+      match /messages/{messageId} {
+        allow get: if isSignedIn() && isValidId(chatId) && isValidId(messageId) && (resource == null || request.auth.uid in existing().participantUids);
+        allow list: if isSignedIn() && request.auth.uid in existing().participantUids;
+
+        allow create: if isSignedIn() &&
+                         isValidId(chatId) &&
+                         isValidId(messageId) &&
+                         incoming().chatId == chatId &&
+                         incoming().senderId == request.auth.uid &&
+                         request.auth.uid in incoming().participantUids &&
+                         isValidEncryptedMessage(incoming());
+
+        allow update: if false;
+        allow delete: if isSignedIn() && isValidId(chatId) && isValidId(messageId) && request.auth.uid in existing().participantUids;
+      }
+    }
+
+    // 7. Voice & Video Call Signaling Collection (with Terminal State Locking)
+    function isValidCallSession(data) {
+      return data.keys().hasAll([
+               'callerId', 'callerName', 'callerBadge', 'calleeId', 'calleeName',
+               'participantUids', 'callType', 'status', 'encryptionFingerprint',
+               'isCallerMuted', 'isCalleeMuted', 'isVideoEnabled',
+               'createdAt', 'updatedAt'
+             ]) &&
+             data.keys().hasOnly([
+               'callerId', 'callerName', 'callerBadge', 'calleeId', 'calleeName',
+               'participantUids', 'callType', 'status', 'encryptionFingerprint',
+               'isCallerMuted', 'isCalleeMuted', 'isVideoEnabled',
+               'createdAt', 'updatedAt'
+             ]) &&
+             data.callerId is string && data.callerId.size() >= 1 && data.callerId.size() <= 128 &&
+             data.callerName is string && data.callerName.size() >= 1 && data.callerName.size() <= 80 &&
+             data.callerBadge is string && data.callerBadge.size() >= 1 && data.callerBadge.size() <= 30 &&
+             data.calleeId is string && data.calleeId.size() >= 1 && data.calleeId.size() <= 128 &&
+             data.calleeName is string && data.calleeName.size() >= 1 && data.calleeName.size() <= 80 &&
+             data.participantUids is list && data.participantUids.size() >= 1 && data.participantUids.size() <= 4 &&
+             data.participantUids[0] is string &&
+             data.callType in ['VOICE', 'VIDEO'] &&
+             data.status in ['RINGING', 'CONNECTED', 'ENDED'] &&
+             data.encryptionFingerprint is string && data.encryptionFingerprint.size() >= 1 && data.encryptionFingerprint.size() <= 100 &&
+             data.isCallerMuted is bool &&
+             data.isCalleeMuted is bool &&
+             data.isVideoEnabled is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /calls/{callId} {
+      allow get: if isSignedIn() && isValidId(callId) && (resource == null || request.auth.uid in existing().participantUids);
+      allow list: if isSignedIn() && request.auth.uid in existing().participantUids;
+
+      allow create: if isSignedIn() &&
+                       isValidId(callId) &&
+                       incoming().callerId == request.auth.uid &&
+                       request.auth.uid in incoming().participantUids &&
+                       incoming().status == 'RINGING' &&
+                       isValidCallSession(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(callId) &&
+                       isValidCallSession(incoming()) &&
+                       (
+                         isAdmin() ||
+                         (existing().status != 'ENDED' &&
+                          request.auth.uid in existing().participantUids &&
+                          incoming().callerId == existing().callerId &&
+                          incoming().calleeId == existing().calleeId &&
+                          incoming().participantUids == existing().participantUids &&
+                          incoming().callType == existing().callType &&
+                          incoming().createdAt == existing().createdAt &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'status', 'isCallerMuted', 'isCalleeMuted', 'isVideoEnabled', 'updatedAt'
+                          ]))
+                       );
+
+      allow delete: if isSignedIn() && isValidId(callId) && (request.auth.uid in existing().participantUids || isAdmin());
+    }
+
+    // 8. FCM Device Registration Tokens Collection
+    function isValidFcmTokenRecord(data) {
+      return data.keys().hasAll(['userId', 'fcmToken', 'platform', 'updatedAt']) &&
+             data.keys().hasOnly(['userId', 'fcmToken', 'platform', 'updatedAt']) &&
+             data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.fcmToken is string && data.fcmToken.size() >= 1 && data.fcmToken.size() <= 512 &&
+             data.platform == 'ANDROID' &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /fcm_tokens/{userId} {
+      allow get: if isSignedIn() && isValidId(userId);
+      allow list: if false;
+      allow create, update: if isSignedIn() &&
+                               isValidId(userId) &&
+                               request.auth.uid == userId &&
+                               incoming().userId == request.auth.uid &&
+                               isValidFcmTokenRecord(incoming());
+      allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+    }
+
+    // 9. Real-Time Push Notification Queue Collection (Private Messages & Friend Requests)
+    function isValidPushNotificationEvent(data) {
+      return data.keys().hasAll([
+               'recipientId', 'senderId', 'senderName', 'senderBadge',
+               'type', 'title', 'body', 'targetId',
+               'isDelivered', 'createdAt', 'updatedAt'
+             ]) &&
+             data.keys().hasOnly([
+               'recipientId', 'senderId', 'senderName', 'senderBadge',
+               'type', 'title', 'body', 'targetId',
+               'isDelivered', 'createdAt', 'updatedAt'
+             ]) &&
+             data.recipientId is string && data.recipientId.size() >= 1 && data.recipientId.size() <= 128 &&
+             data.senderId is string && data.senderId.size() >= 1 && data.senderId.size() <= 128 &&
+             data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 80 &&
+             data.senderBadge is string && data.senderBadge.size() <= 40 &&
+             data.type in ['PRIVATE_MESSAGE', 'FRIEND_REQUEST', 'FRIEND_ACCEPTED'] &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+             data.body is string && data.body.size() >= 1 && data.body.size() <= 300 &&
+             data.targetId is string && data.targetId.size() <= 128 &&
+             data.isDelivered is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /notifications/{notificationId} {
+      allow get: if isSignedIn() &&
+                    isValidId(notificationId) &&
+                    (resource == null || existing().recipientId == request.auth.uid || existing().senderId == request.auth.uid);
+      allow list: if isSignedIn() &&
+                     (existing().recipientId == request.auth.uid || existing().senderId == request.auth.uid);
+
+      allow create: if isSignedIn() &&
+                       isValidId(notificationId) &&
+                       incoming().senderId == request.auth.uid &&
+                       incoming().recipientId != request.auth.uid &&
+                       incoming().isDelivered == false &&
+                       isValidPushNotificationEvent(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(notificationId) &&
+                       existing().recipientId == request.auth.uid &&
+                       isValidPushNotificationEvent(incoming()) &&
+                       incoming().recipientId == existing().recipientId &&
+                       incoming().senderId == existing().senderId &&
+                       incoming().type == existing().type &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['isDelivered', 'updatedAt']);
+
+      allow delete: if isSignedIn() &&
+                       isValidId(notificationId) &&
+                       (existing().recipientId == request.auth.uid || existing().senderId == request.auth.uid);
+    }
+  }
+}
